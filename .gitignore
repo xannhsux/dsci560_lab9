@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor directories
+.vscode/
+.idea/
+
+# Python test / coverage
+.pytest_cache/
+htmlcov/
+coverage.xml
+
+# Logs
+*.log
+logs/
+
+# Jupyter
+.ipynb_checkpoints
+
+# Environment / secrets
+.env
+.env.*
+secrets.json
+
+# Database files - do not commit DBs
+*.db
+*.sqlite
+*.sqlite3
+ads_texts.db
+test_*.db
+
+# Node
+node_modules/
+
+# Build
+dist/
+build/

@@ -1,35 +1,87 @@
+from csv import reader
+import os
 import streamlit as st
 from dotenv import load_dotenv
 from PyPDF2 import PdfReader
-from langchain.text_splitter import CharacterTextSplitter
-from langchain.embeddings import OpenAIEmbeddings, HuggingFaceEmbeddings
-from langchain.vectorstores import FAISS
-from langchain.chat_models import ChatOpenAI
-from langchain.memory import ConversationBufferMemory
-from langchain.chains import ConversationalRetrievalChain
+from langchain_text_splitters import CharacterTextSplitter
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+#from langchain.memory import ConversationBufferMemory
+#from langchain.chains import ConversationalRetrievalChain
 from htmlTemplates import css, bot_template, user_template
-from langchain import HuggingFacePipeline
-from langchain.llms import LlamaCpp
+#from langchain_community.llms import LlamaCpp
+import sqlite3, time
 
 
 def get_pdf_text(pdf_docs):
-    text = "/Users/f./Desktop/dsci560_lab9/Ads cookbook .pdf"
+    rows = []
     for pdf in pdf_docs:
-        pdf_reader = PdfReader(pdf)
-        for page in pdf_reader.pages:
-            text += page.extract_text()
-    return text
+        reader = PdfReader(pdf)
+        fname = getattr(pdf, 'name', None) or os.path.basename(str(pdf))
+        for idx, page in enumerate(reader.pages, start=1):
+            content = page.extract_text() or ""
+            rows.append((fname, idx, content))
+    return rows
 
 
-def get_text_chunks(text):
-    text_splitter = CharacterTextSplitter(
+def get_text_chunks(rows, chunk_size=500, chunk_overlap=100):
+    splitter = CharacterTextSplitter(
         separator="\n",
-        chunk_size=500,
-        chunk_overlap=100,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
         length_function=len
     )
-    chunks = text_splitter.split_text(text)
+    chunks = []
+    for filename, page_no, content in rows:
+        if not content.strip():
+            continue
+        parts = splitter.split_text(content)
+        for i, part in enumerate(parts, start=1):
+            chunks.append((filename, page_no, i, part))
     return chunks
+
+
+def save_chunks(chunks, db_path="ads_texts.db"):
+   
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+
+    cur.execute("DROP TABLE IF EXISTS pdf_chunks")
+    cur.execute("""CREATE TABLE pdf_chunks(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        filename TEXT,
+        page INTEGER,
+        chunk_id INTEGER,
+        chunk_text TEXT,
+        created_at INTEGER
+    )""")
+
+    now = int(time.time())
+    rows = []
+    for chunk in chunks:
+  
+        try:
+            if len(chunk) == 4:
+                f, p, i, t = chunk
+            elif len(chunk) == 3:
+                f, i, t = chunk
+                p = None
+            else:
+  
+                continue
+            rows.append((f, p, i, t, now))
+        except Exception:
+            continue
+
+    if rows:
+        cur.executemany(
+            "INSERT INTO pdf_chunks(filename,page,chunk_id,chunk_text,created_at) VALUES (?,?,?,?,?)",
+            rows,
+        )
+    conn.commit()
+    conn.close()
+
 
 
 # def get_vectorstore(text_chunks):
@@ -110,5 +162,7 @@ def get_text_chunks(text):
 #                     vectorstore)
 
 
-if __name__ == '__main__':
-    main()
+# NOTE: main() is not defined in this module. To avoid running on import,
+# comment out the call below. If you add a main() later, you can uncomment.
+# if __name__ == '__main__':
+#     main()
