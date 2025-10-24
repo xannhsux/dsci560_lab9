@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+  backend:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - PROVIDER=${PROVIDER:-openai}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - HF_EMBED_MODEL=${HF_EMBED_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
+      - TEMP=${TEMP:-0.0}
+      - PERSIST_DIR=/app/vectorstore/faiss
+      - UPLOAD_DIR=/app/uploads
+      - SQLITE_DB_PATH=/app/data/ads_texts.db
+    volumes:
+      - vectorstore_data:/app/vectorstore
+      - uploads_data:/app/uploads
+      - sqlite_data:/app/data
+    restart: unless-stopped
+
+  frontend:
+    image: nginx:alpine
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    restart: unless-stopped
+
+volumes:
+  vectorstore_data:
+  uploads_data:
+  sqlite_data:

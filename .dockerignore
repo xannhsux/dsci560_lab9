@@ -1,0 +1,14 @@
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+build
+dist
+*.egg-info
+.git
+.gitignore
+Ads cookbook .pdf
+pdf_chatbot_Llama2.jpg
+pdf_chatbot_gpt.jpg

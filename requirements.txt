@@ -1,4 +1,20 @@
 streamlit
+
+# core
 python-dotenv
+fastapi
+uvicorn
+
+# pdf + utils
 PyPDF2
+
+# langchain + embeddings + vector store
 langchain
+langchain-community
+langchain-openai
+langchain-text-splitters
+faiss-cpu
+sentence-transformers
+
+# optional for OSS LLM route
+ollama  # client to talk to local Ollama server
