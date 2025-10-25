@@ -4,6 +4,7 @@ streamlit
 python-dotenv
 fastapi
 uvicorn
+python-multipart
 
 # pdf + utils
 PyPDF2

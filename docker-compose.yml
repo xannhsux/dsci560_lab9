@@ -1,27 +1,40 @@
 version: "3.9"
 
 services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./ollama:/root/.ollama
+    restart: unless-stopped
+
   backend:
     build: .
+    container_name: dsci560-backend
+    depends_on:
+      - ollama
     ports:
       - "8000:8000"
     environment:
-      - PROVIDER=${PROVIDER:-openai}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - PROVIDER=${PROVIDER:-oss}
       - HF_EMBED_MODEL=${HF_EMBED_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://ollama:11434}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - TEMP=${TEMP:-0.0}
-      - PERSIST_DIR=/app/vectorstore/faiss
-      - UPLOAD_DIR=/app/uploads
-      - SQLITE_DB_PATH=/app/data/ads_texts.db
+      - PERSIST_DIR=/data/vectorstore/faiss
+      - UPLOAD_DIR=/data/uploads
+      - SQLITE_DB_PATH=/data/ads_texts.db
+      - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost:3000","http://127.0.0.1:3000","http://frontend:3000"]}
     volumes:
-      - vectorstore_data:/app/vectorstore
-      - uploads_data:/app/uploads
-      - sqlite_data:/app/data
+      - ./data:/data
     restart: unless-stopped
 
   frontend:
     image: nginx:alpine
+    container_name: dsci560-frontend
     depends_on:
       - backend
     ports:
@@ -29,8 +42,3 @@ services:
     volumes:
       - ./frontend:/usr/share/nginx/html:ro
     restart: unless-stopped
-
-volumes:
-  vectorstore_data:
-  uploads_data:
-  sqlite_data:

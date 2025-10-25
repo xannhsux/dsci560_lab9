@@ -1,4 +1,5 @@
 from csv import reader
+import json
 import os
 import streamlit as st
 from dotenv import load_dotenv
@@ -17,6 +18,33 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from .vectorstore import extract_text_from_pdfs, chunk_text, build_or_load_faiss
 from .chatbot import make_conversation_chain
+
+
+def _parse_cors_origins() -> list:
+    raw = os.getenv("CORS_ORIGINS")
+    if not raw:
+        return ["*"]
+    raw = raw.strip()
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, str):
+            return [parsed]
+        if isinstance(parsed, (list, tuple)):
+            return [str(origin) for origin in parsed]
+    except json.JSONDecodeError:
+        pass
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
+app = FastAPI(title="DSCI-560 Q&A Chatbot")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_parse_cors_origins(),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 DB_PATH = os.getenv("SQLITE_DB_PATH", "ads_texts.db")
 
@@ -101,13 +129,6 @@ def load_documents_from_db(db_path: str) -> List[Document]:
 PERSIST_DIR = os.getenv("PERSIST_DIR", "vectorstore/faiss")
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
 Path(UPLOAD_DIR).mkdir(exist_ok=True, parents=True)
-
-app = FastAPI(title="DSCI-560 Q&A Chatbot")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"], allow_credentials=True,
-    allow_methods=["*"], allow_headers=["*"],
-)
 
 # Keep a global chain instance (simple demo; production would scope per-user/session)
 _chain = None
