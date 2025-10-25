@@ -159,24 +159,7 @@
       background: rgba(79, 70, 229, 0.45);
     }
 
-    .sources {
-      margin-top: 10px;
-      padding-top: 10px;
-      border-top: 1px solid rgba(148, 163, 184, 0.2);
-      font-size: 0.85rem;
-      color: #cbd5f5;
-    }
-
-    .sources strong {
-      display: block;
-      margin-bottom: 4px;
-      color: #facc15;
-    }
-
-    .sources ul {
-      margin: 0;
-      padding-left: 18px;
-    }
+    /* Sources CSS removed - not displaying sources */
 
     .input-bar {
       margin-top: 18px;
@@ -309,25 +292,7 @@
         content.className = "message-content";
         content.textContent = text;
 
-        if (sources.length > 0) {
-          const sourceBlock = document.createElement("div");
-          sourceBlock.className = "sources";
-
-          const title = document.createElement("strong");
-          title.textContent = "Sources";
-          sourceBlock.appendChild(title);
-
-          const list = document.createElement("ul");
-          sources.forEach((source) => {
-            const item = document.createElement("li");
-            const src = source.source || "unknown source";
-            const snippet = (source.snippet || "").trim();
-            item.textContent = snippet ? src + " – " + snippet : src;
-            list.appendChild(item);
-          });
-          sourceBlock.appendChild(list);
-          content.appendChild(sourceBlock);
-        }
+        // Sources display removed - keeping clean answer only
 
         container.appendChild(icon);
         container.appendChild(content);

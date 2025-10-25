@@ -1,4 +1,5 @@
 import os
+import logging
 from pathlib import Path
 from typing import List, Tuple
 
@@ -6,16 +7,33 @@ from langchain_text_splitters import CharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
-# Embeddings: OpenAI or Sentence-Transformers (OSS)
+logger = logging.getLogger(__name__)
+
+# Embeddings: OpenAI, Gemini, or Sentence-Transformers (OSS)
 def _get_embeddings():
-    provider = os.getenv("PROVIDER", "openai").lower()
+    # Check if there's a separate embeddings provider setting
+    provider = os.getenv("EMBED_PROVIDER", os.getenv("PROVIDER", "openai")).lower()
+    logger.info(f"Initializing embeddings with provider: {provider}")
+
     if provider == "openai":
         from langchain_openai import OpenAIEmbeddings
-        return OpenAIEmbeddings(model=os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small"))
+        model = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
+        logger.info(f"Using OpenAI embeddings model: {model}")
+        return OpenAIEmbeddings(model=model)
+    elif provider == "gemini":
+        from langchain_google_genai import GoogleGenerativeAIEmbeddings
+        model = os.getenv("GEMINI_EMBED_MODEL", "models/embedding-001")
+        api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+        logger.info(f"Using Gemini embeddings model: {model}")
+        return GoogleGenerativeAIEmbeddings(
+            model=model,
+            google_api_key=api_key
+        )
     else:
         # Free option
         from langchain_community.embeddings import HuggingFaceEmbeddings
         model_name = os.getenv("HF_EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+        logger.info(f"Using HuggingFace embeddings model: {model_name}")
         return HuggingFaceEmbeddings(model_name=model_name)
 
 def extract_text_from_pdfs(pdf_paths: List[str]) -> List[Tuple[str, int, str]]:
@@ -60,9 +78,20 @@ def build_or_load_faiss(docs: List[Document], persist_dir: str = "vectorstore/fa
     embeddings = _get_embeddings()
     if not docs:
         if index_file.exists() and store_file.exists():
+            logger.info("Loading existing FAISS index")
             return FAISS.load_local(str(persist_dir), embeddings, allow_dangerous_deserialization=True)
         raise ValueError("No documents supplied and no existing FAISS index to load.")
 
-    vectorstore = FAISS.from_documents(docs, embeddings)
+    logger.info(f"Building FAISS index with {len(docs)} documents using cosine similarity")
+
+    # Use cosine similarity by setting normalize_L2=True
+    # This normalizes vectors before storing, making L2 distance equivalent to cosine similarity
+    vectorstore = FAISS.from_documents(
+        docs,
+        embeddings,
+        normalize_L2=True  # Enable cosine similarity
+    )
+
     vectorstore.save_local(str(persist_dir))
+    logger.info(f"FAISS index saved to {persist_dir}")
     return vectorstore

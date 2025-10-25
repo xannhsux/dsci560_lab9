@@ -1,6 +1,7 @@
 from csv import reader
 import json
 import os
+import logging
 import streamlit as st
 from dotenv import load_dotenv
 from PyPDF2 import PdfReader
@@ -18,6 +19,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from .vectorstore import extract_text_from_pdfs, chunk_text, build_or_load_faiss
 from .chatbot import make_conversation_chain
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Load environment variables
+load_dotenv()
+logger.info("Environment variables loaded")
 
 
 def _parse_cors_origins() -> list:
@@ -139,55 +151,133 @@ class AskBody(BaseModel):
 def _ensure_chain():
     global _chain
     if _chain is None:
+        logger.info("Initializing conversation chain...")
         # Load existing FAISS (must exist) or create an empty placeholder error
         from langchain_community.vectorstores import FAISS
-        try:
-            vs = FAISS.load_local(PERSIST_DIR, embeddings=None, allow_dangerous_deserialization=True)
-        except Exception:
-            raise RuntimeError("Vector store not found. Ingest PDFs first via /ingest.")
-        # Need embeddings object for loaded store
         from .vectorstore import _get_embeddings
-        vs.embeddings = _get_embeddings()
-        _chain = make_conversation_chain(vs)
+
+        try:
+            logger.info(f"Loading FAISS vector store from {PERSIST_DIR}")
+            embeddings = _get_embeddings()
+            vs = FAISS.load_local(PERSIST_DIR, embeddings=embeddings, allow_dangerous_deserialization=True)
+            logger.info("Vector store loaded successfully")
+        except FileNotFoundError as e:
+            logger.error(f"Vector store not found at {PERSIST_DIR}: {e}")
+            raise HTTPException(
+                status_code=400,
+                detail="Vector store not found. Please upload and ingest PDFs first via /ingest endpoint."
+            )
+        except Exception as e:
+            logger.error(f"Error loading vector store: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to load vector store: {str(e)}"
+            )
+
+        try:
+            _chain = make_conversation_chain(vs)
+            logger.info("Conversation chain initialized successfully")
+        except Exception as e:
+            logger.error(f"Error creating conversation chain: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to create conversation chain: {str(e)}"
+            )
+
     return _chain
 
 @app.post("/ingest")
 async def ingest(files: List[UploadFile] = File(...)):
-    paths = []
-    for f in files:
-        dest = Path(UPLOAD_DIR) / f.filename
-        with dest.open("wb") as out:
-            out.write(await f.read())
-        paths.append(str(dest))
+    logger.info(f"Ingesting {len(files)} PDF files")
 
-    # Extract -> Chunk -> Embed -> Save FAISS
-    pairs = extract_text_from_pdfs(paths)
-    new_docs, chunk_rows = chunk_text(
-        pairs,
-        chunk_size=int(os.getenv("CHUNK_SIZE", "500")),
-        chunk_overlap=int(os.getenv("CHUNK_OVERLAP", "50"))
-    )
-    if not new_docs:
-        raise HTTPException(status_code=400, detail="No extractable text found in the uploaded PDFs.")
-    if chunk_rows:
-        save_chunks(chunk_rows, db_path=DB_PATH)
-    all_docs = load_documents_from_db(DB_PATH)
-    if not all_docs:
-        raise HTTPException(status_code=500, detail="Failed to persist chunks to the document store.")
-    vs = build_or_load_faiss(all_docs, persist_dir=PERSIST_DIR)
+    try:
+        paths = []
+        for f in files:
+            dest = Path(UPLOAD_DIR) / f.filename
+            logger.info(f"Saving uploaded file: {f.filename}")
+            with dest.open("wb") as out:
+                out.write(await f.read())
+            paths.append(str(dest))
 
-    # Refresh global chain
-    global _chain
-    _chain = make_conversation_chain(vs)
-    return {"status": "ok", "documents": len(all_docs), "ingested": len(new_docs)}
+        # Extract -> Chunk -> Embed -> Save FAISS
+        logger.info("Extracting text from PDFs...")
+        pairs = extract_text_from_pdfs(paths)
+        logger.info(f"Extracted text from {len(pairs)} pages")
+
+        logger.info("Chunking text...")
+        new_docs, chunk_rows = chunk_text(
+            pairs,
+            chunk_size=int(os.getenv("CHUNK_SIZE", "500")),
+            chunk_overlap=int(os.getenv("CHUNK_OVERLAP", "50"))
+        )
+
+        if not new_docs:
+            logger.error("No extractable text found in uploaded PDFs")
+            raise HTTPException(status_code=400, detail="No extractable text found in the uploaded PDFs.")
+
+        logger.info(f"Created {len(new_docs)} document chunks")
+
+        if chunk_rows:
+            logger.info(f"Saving {len(chunk_rows)} chunks to database...")
+            save_chunks(chunk_rows, db_path=DB_PATH)
+
+        all_docs = load_documents_from_db(DB_PATH)
+        if not all_docs:
+            logger.error("Failed to load documents from database")
+            raise HTTPException(status_code=500, detail="Failed to persist chunks to the document store.")
+
+        logger.info(f"Building FAISS vector store with {len(all_docs)} documents...")
+        vs = build_or_load_faiss(all_docs, persist_dir=PERSIST_DIR)
+
+        # Refresh global chain
+        global _chain
+        logger.info("Refreshing conversation chain...")
+        _chain = make_conversation_chain(vs)
+
+        logger.info(f"Ingestion complete: {len(new_docs)} new chunks, {len(all_docs)} total documents")
+        return {"status": "ok", "documents": len(all_docs), "ingested": len(new_docs)}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error during ingestion: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error during PDF ingestion: {str(e)}"
+        )
 
 @app.post("/ask")
 async def ask(body: AskBody):
-    chain = _ensure_chain()
-    result = chain.invoke({"question": body.question})
-    answer = result["answer"]
-    sources = [{"source": d.metadata.get("source", ""), "snippet": d.page_content[:200]} for d in result["source_documents"]]
-    return {"answer": answer, "sources": sources}
+    logger.info(f"Received question: {body.question[:100]}...")
+
+    try:
+        chain = _ensure_chain()
+        logger.info("Invoking conversation chain...")
+
+        result = chain.invoke({"question": body.question})
+
+        answer = result.get("answer", "")
+        if not answer:
+            logger.warning("Empty answer received from chain")
+            answer = "I apologize, but I couldn't generate an answer. Please try rephrasing your question."
+
+        sources = [
+            {"source": d.metadata.get("source", ""), "snippet": d.page_content[:200]}
+            for d in result.get("source_documents", [])
+        ]
+
+        logger.info(f"Successfully generated answer with {len(sources)} sources")
+        return {"answer": answer, "sources": sources}
+
+    except HTTPException:
+        # Re-raise HTTP exceptions (from _ensure_chain)
+        raise
+    except Exception as e:
+        logger.error(f"Error processing question: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing your question: {str(e)}"
+        )
 
 # ---------- CLI Driver (optional) ----------
 def cli():
